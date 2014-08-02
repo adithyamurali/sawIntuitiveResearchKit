@@ -19,15 +19,22 @@ http://www.cisst.org/cisst/license.txt.
 
 
 // system include
-#include <iostream>
 #include <time.h>
-
 // cisst
 #include <sawIntuitiveResearchKit/mtsIntuitiveResearchKitPSM.h>
 #include <cisstMultiTask/mtsInterfaceProvided.h>
 #include <cisstMultiTask/mtsInterfaceRequired.h>
 #include <cisstParameterTypes/prmEventButton.h>
+#include <cisstVector/vctTransformationTypes.h>
 
+#include <fstream>
+#include <iostream>
+using namespace std;
+
+#include <stdio.h>
+#include <stdexcept>
+
+#define PI 3.14159265
 
 CMN_IMPLEMENT_SERVICES_DERIVED_ONEARG(mtsIntuitiveResearchKitPSM, mtsTaskPeriodic, mtsTaskPeriodicConstructorArg);
 
@@ -45,6 +52,7 @@ mtsIntuitiveResearchKitPSM::mtsIntuitiveResearchKitPSM(const mtsTaskPeriodicCons
 
 void mtsIntuitiveResearchKitPSM::Init(void)
 {
+    autonomous = false;
     IsCartesianGoalSet = false;
     Counter = 0;
 
@@ -68,6 +76,9 @@ void mtsIntuitiveResearchKitPSM::Init(void)
 
     this->StateTable.AddData(CartesianCurrentParam, "CartesianPosition");
     this->StateTable.AddData(JointCurrentParam, "JointPosition");
+    this->StateTable.AddData(JointSimulationParam, "JointDesiredPosition");
+    this->StateTable.AddData(autonomous, "RobotState");
+    this->StateTable.AddData(CartesianGoalSet, "CartesianGoalSet");
 
     // setup CISST Interface
     mtsInterfaceRequired * interfaceRequired;
@@ -121,6 +132,8 @@ void mtsIntuitiveResearchKitPSM::Init(void)
     mtsInterfaceProvided * interfaceProvided = AddInterfaceProvided("Robot");
     if (interfaceProvided) {
         interfaceProvided->AddCommandReadState(this->StateTable, JointCurrentParam, "GetPositionJoint");
+        interfaceProvided->AddCommandReadState(this->StateTable, autonomous, "GetRobotState");
+        interfaceProvided->AddCommandReadState(this->StateTable, JointSimulationParam, "GetPositionJoint2");
         interfaceProvided->AddCommandReadState(this->StateTable, CartesianCurrentParam, "GetPositionCartesian");
         interfaceProvided->AddCommandWrite(&mtsIntuitiveResearchKitPSM::SetPositionCartesian, this, "SetPositionCartesian");
         interfaceProvided->AddCommandWrite(&mtsIntuitiveResearchKitPSM::SetOpenAngle, this, "SetOpenAngle");
@@ -135,6 +148,7 @@ void mtsIntuitiveResearchKitPSM::Init(void)
         interfaceProvided->AddCommandReadState(StateTable, StateTable.PeriodStats,
                                                "GetPeriodStatistics");
     }
+
 }
 
 void mtsIntuitiveResearchKitPSM::Configure(const std::string & filename)
@@ -167,6 +181,7 @@ void mtsIntuitiveResearchKitPSM::Run(void)
 
     switch (RobotState) {
     case PSM_UNINITIALIZED:
+//        cout << "Slave State: Uninitialized" << endl;
         break;
     case PSM_HOMING_POWERING:
         RunHomingPower();
@@ -186,6 +201,7 @@ void mtsIntuitiveResearchKitPSM::Run(void)
         RunEngagingTool();
         break;
     case PSM_READY:
+//        cout << "Slave State: Ready" << endl;
     case PSM_POSITION_CARTESIAN:
         RunPositionCartesian();
         break;
@@ -243,11 +259,13 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
     switch (newState) {
 
     case PSM_UNINITIALIZED:
+        autonomous = false;
         RobotState = newState;
         EventTriggers.RobotStatusMsg(this->GetName() + " not initialized");
         break;
 
     case PSM_HOMING_POWERING:
+        autonomous = false;
         HomingTimer = 0.0;
         HomingPowerRequested = false;
         RobotState = newState;
@@ -255,12 +273,14 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_HOMING_CALIBRATING_ARM:
+        autonomous = false;
         HomingCalibrateArmStarted = false;
         RobotState = newState;
         this->EventTriggers.RobotStatusMsg(this->GetName() + " calibrating arm");
         break;
 
     case PSM_ARM_CALIBRATED:
+        autonomous = false;
         RobotState = newState;
         this->EventTriggers.RobotStatusMsg(this->GetName() + " arm calibrated");
         // check if adpater is present and trigger new state
@@ -272,6 +292,7 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_ENGAGING_ADAPTER:
+        autonomous = false;
         EngagingAdapterStarted = false;
         if (this->RobotState < PSM_ARM_CALIBRATED) {
             EventTriggers.RobotStatusMsg(this->GetName() + " is not calibrated yet, will engage adapter later");
@@ -289,6 +310,7 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_ADAPTER_ENGAGED:
+        autonomous = false;
         RobotState = newState;
         this->EventTriggers.RobotStatusMsg(this->GetName() + " adapter engaged");
         // check if tool is present and trigger new state
@@ -300,6 +322,7 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_ENGAGING_TOOL:
+        autonomous = false;
         EngagingToolStarted = false;
         if (this->RobotState < PSM_ADAPTER_ENGAGED) {
             EventTriggers.RobotStatusMsg(this->GetName() + " adapter is not engaged yet, will engage tool later");
@@ -310,12 +333,14 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_READY:
+        autonomous = false;
         // when returning from manual mode, need to re-enable PID
         RobotState = newState;
         EventTriggers.RobotStatusMsg(this->GetName() + " ready");
         break;
 
     case PSM_POSITION_CARTESIAN:
+        autonomous = true;
         if (this->RobotState < PSM_ARM_CALIBRATED) {
             EventTriggers.RobotErrorMsg(this->GetName() + " is not calibrated");
             return;
@@ -330,6 +355,7 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
 
     case PSM_MANUAL:
+        autonomous = false;
         if (this->RobotState < PSM_ARM_CALIBRATED) {
             EventTriggers.RobotErrorMsg(this->GetName() + " is not ready yet");
             return;
@@ -341,7 +367,7 @@ void mtsIntuitiveResearchKitPSM::SetState(const RobotStateType & newState)
         break;
     default:
         break;
-    }   
+    }
 }
 
 void mtsIntuitiveResearchKitPSM::RunHomingPower(void)
@@ -588,6 +614,13 @@ void mtsIntuitiveResearchKitPSM::RunPositionCartesian(void)
     //! \todo: should prevent user to go to close to RCM!
 
     if (IsCartesianGoalSet == true) {
+        cout << "--------- XXX- PSM -XXX-------------- " << endl;
+        cout << "PSM Current Pose: " << endl;
+        cout << CartesianCurrentParam << endl;
+
+        cout << "PSM Goal Pose: " << endl;
+        cout << CartesianGoalSet.Goal() << endl;
+
         vctDoubleVec jointSet(6, 0.0);
         jointSet.Assign(JointCurrent, 6);
 
@@ -612,6 +645,9 @@ void mtsIntuitiveResearchKitPSM::RunPositionCartesian(void)
         }
         */
 #endif // Anton
+        cout << "PSM Goal Joint" << endl;
+        cout << JointCurrentParam << endl;
+        cout << jointSet << endl;
         SetPositionJointLocal(jointSet);
 
         // reset flag
@@ -623,8 +659,25 @@ void mtsIntuitiveResearchKitPSM::SetPositionJointLocal(const vctDoubleVec & newP
 {
     JointDesiredParam.Goal().Assign(newPosition, NumberOfJoints);
     JointDesiredParam.Goal().Element(2) *= 1000.0; // convert from meters to mm
-//    JointDesiredParam.Goal().Element(7) = 0.0;   // ZC: PSM only has 7 joints
+//    JointSimulationParam.Copy(JointCurrentParam);
+//    JointSimulationParam.SetPosition(newPosition);
     PID.SetPositionJoint(JointDesiredParam);
+
+    //    if (RobotState == PSM_POSITION_CARTESIAN) {
+//        cout << "State: PSM_POSITION_CARTESIAN" << endl;
+//    } else {
+//        cout << "State: " << RobotState<< endl;
+
+//    }
+    //Adithya commented this out
+//            cout << "    " << endl;
+//            cout << " JointDesiredParam: " << JointDesiredParam << " Goal: " << JointDesiredParam.Goal() << " newPosition " << newPosition << " #: " << NumberOfJoints << endl;
+
+//            cout << " JointCurrentParam: "  << JointCurrentParam << "   "<< endl;
+//            cout << " JointSimulationParam: "  << JointSimulationParam << "   "<< endl;
+//            cout << "    " << endl;
+
+
 }
 
 void mtsIntuitiveResearchKitPSM::SetPositionCartesian(const prmPositionCartesianSet & newPosition)

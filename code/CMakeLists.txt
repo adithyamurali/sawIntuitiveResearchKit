@@ -54,6 +54,7 @@ if (cisst_FOUND)
          ${sawIntuitiveResearchKit_HEADER_DIR}/mtsIntuitiveResearchKitPSM.h
          ${sawIntuitiveResearchKit_HEADER_DIR}/mtsIntuitiveResearchKitConsole.h
          ${sawIntuitiveResearchKit_HEADER_DIR}/mtsIntuitiveResearchKitUDPStreamer.h
+         ${sawIntuitiveResearchKit_HEADER_DIR}/mtsIntuitiveResearchKitBlock.h
         )
 
     set (SOURCE_FILES
@@ -61,6 +62,7 @@ if (cisst_FOUND)
          mtsIntuitiveResearchKitPSM.cpp
          mtsIntuitiveResearchKitConsole.cpp
          mtsIntuitiveResearchKitUDPStreamer.cpp
+         mtsIntuitiveResearchKitBlock.cpp         
         )
 
     add_library (sawIntuitiveResearchKit ${HEADER_FILES} ${SOURCE_FILES})

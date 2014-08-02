@@ -32,6 +32,9 @@ http://www.cisst.org/cisst/license.txt.
 // temporary
 #include <cisstOSAbstraction/osaStopwatch.h>
 
+#include <fstream>
+using namespace std;
+
 class mtsIntuitiveResearchKitPSM: public mtsTaskPeriodic
 {
     CMN_DECLARE_SERVICES(CMN_DYNAMIC_CREATION_ONEARG, CMN_LOG_ALLOW_DEFAULT);
@@ -41,7 +44,7 @@ public:
 
     mtsIntuitiveResearchKitPSM(const std::string & componentName, const double periodInSeconds);
     mtsIntuitiveResearchKitPSM(const mtsTaskPeriodicConstructorArg & arg);
-    inline ~mtsIntuitiveResearchKitPSM() {}
+    inline ~mtsIntuitiveResearchKitPSM() {file.close();}
 
     void Configure(const std::string & filename);
     void Startup(void);
@@ -49,6 +52,8 @@ public:
     void Cleanup(void);
 
 protected:
+
+    ofstream file;
 
     enum RobotStateType {
         PSM_UNINITIALIZED, /*! State when constructed */
@@ -159,6 +164,7 @@ protected:
     prmPositionJointGet JointCurrentParam;
     vctDoubleVec JointCurrent;
     prmPositionJointSet JointDesiredParam;
+    prmPositionJointGet JointSimulationParam;
     vctDoubleVec JointDesired;
     robManipulator Manipulator;
     vctFrm4x4 Frame6to7;
@@ -185,6 +191,7 @@ protected:
     bool HomingCalibrateArmStarted;
     bool EngagingAdapterStarted;
     bool EngagingToolStarted;
+    bool autonomous;
 
     // temporary
     osaStopwatch EngagingStopwatch;
